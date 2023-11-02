@@ -2322,7 +2322,23 @@ void PT_CALL glDebugMessageInsertAMD(uint32_t arg0, uint32_t arg1, uint32_t arg2
     pt0 = (uint32_t *)pt[0]; *pt0 = FEnum_glDebugMessageInsertAMD;
 }
 void PT_CALL glDebugMessageInsertARB(uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint32_t arg5) {
-    fifoAddData(0, arg5, arg4);
+    if ((arg0 == GL_DEBUG_SOURCE_APPLICATION_ARB) &&
+        (arg1 == GL_DEBUG_TYPE_ERROR_ARB) &&
+        (arg2 == MESAGL_MAGIC)) {
+        if ((mdata[1] + arg3) == 0)
+            return;
+        char str[] = "MGLRefcount xxxxx reset";
+        snprintf(str, sizeof(str), "MGLRefcount %04x reset", mdata[1]);
+        mdata[1] = 1;
+        arg0 = GL_DEBUG_SOURCE_OTHER_ARB;
+        arg1 = GL_DEBUG_TYPE_OTHER_ARB;
+        arg2 = GL_DEBUG_SEVERITY_LOW_ARB;
+        arg4 = strlen(str) + 1;
+        arg5 = (uint32_t)str;
+        fifoAddData(0, arg5, arg4);
+    }
+    else
+        fifoAddData(0, arg5, arg4);
     pt[1] = arg0; pt[2] = arg1; pt[3] = arg2; pt[4] = arg3; pt[5] = arg4; pt[6] = arg5; 
     pt0 = (uint32_t *)pt[0]; *pt0 = FEnum_glDebugMessageInsertARB;
 }
@@ -16992,7 +17008,7 @@ static void HookPatchGamma(const uint32_t start, const uint32_t *iat, const DWOR
 
 void HookDeviceGammaRamp(const uint32_t caddr)
 {
-    uint32_t addr, *patch;
+    uint32_t addr, *patch, range;
 
     if (caddr && !IsBadReadPtr((void *)(caddr - 0x06), 0x06)) {
         uint16_t *callOp = (uint16_t *)(caddr - 0x06);
@@ -17011,9 +17027,11 @@ void HookDeviceGammaRamp(const uint32_t caddr)
     } \
     addr = (addr && (0x4550U == *(uint32_t *)addr))? addr:0; \
     patch = (uint32_t *)(addr & ~(PAGE_SIZE - 1)); \
-    HookParseRange(&addr, &patch, PAGE_SIZE); \
-    HookPatchGamma(addr, patch, PAGE_SIZE - (((uint32_t)patch) & (PAGE_SIZE - 1)));
+    range = PAGE_SIZE; \
+    HookParseRange(&addr, &patch, &range); \
+    HookPatchGamma(addr, patch, range - (((uint32_t)patch) & (PAGE_SIZE - 1)));
     GLGAMMA_HOOK("opengldrv.dll");
+    GLGAMMA_HOOK(0);
 #undef GLGAMMA_HOOK
 }
 

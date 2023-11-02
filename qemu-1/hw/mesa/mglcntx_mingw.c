@@ -30,9 +30,8 @@
     if (cond) { fprintf(stderr, "glcntx: " fmt "\n" , ## __VA_ARGS__); }
 
 
-#if defined(CONFIG_WIN32) && CONFIG_WIN32
-#include <GL/gl.h>
-#include <GL/wglext.h>
+#if defined(CONFIG_WIN32)
+#include <GL/wgl.h>
 #include "sysemu/whpx.h"
 
 int MGLUpdateGuestBufo(mapbufo_t *bufo, int add)

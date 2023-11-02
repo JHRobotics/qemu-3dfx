@@ -75,7 +75,7 @@ static BOOL WINAPI elapsedTickProc(LARGE_INTEGER *count)
     uintptr_t aligned = (uintptr_t)count;
     HookTimeTckRef(&tick);
 
-    if (tick->freq.QuadPart < TICK_8254) {
+    if ((VER_PLATFORM_WIN32_WINDOWS == fxCompatPlatformId(0)) && (tick->freq.QuadPart < TICK_8254)) {
         DWORD t = acpi_tick_asm();
         if ((tick->run.u.LowPart & 0x00FFFFFFU) > t)
             __atomic_store_n(&tick->run.QuadPart, ((((tick->run.QuadPart >> 24) + 1) << 24) | t), __ATOMIC_RELAXED);
@@ -108,24 +108,32 @@ static DWORD WINAPI TimeHookProc(void)
 #undef TICK_8254
 #undef TICK_ACPI
 
-void HookParseRange(uint32_t *start, uint32_t **iat, const DWORD range)
+void HookParseRange(uint32_t *start, uint32_t **iat, uint32_t *eoffs)
 {
-    const char idata[] = ".idata", rdata[] = ".rdata";
-    uint32_t addr = *start;
+    const char idata[] = ".idata", rdata[] = ".rdata", dtext[] = ".text";
+    uint32_t addr = *start, range = *eoffs;
 
     if (addr && (0x4550U == *(uint32_t *)addr)) {
         for (int i = 0; i < range; i += 0x04) {
             if (!memcmp((void *)(addr + i), idata, sizeof(idata))) {
+                *eoffs = (((uint32_t *)(addr + i))[2])?
+                    ((uint32_t *)(addr + i))[2]:((uint32_t *)(addr + i))[4];
                 addr = (addr & ~(range - 1)) + ((uint32_t *)(addr + i))[3];
                 *iat = (uint32_t *)addr;
                 *start = addr;
                 break;
             }
         }
-        for (int i = 0; i < range; i += 0x04) {
-            if (addr == (uint32_t)(*iat))
-                break;
+        for (int i = 0; (addr != (uint32_t)(*iat)) && (i < range); i += 0x04) {
             if (!memcmp((void *)(addr + i), rdata, sizeof(rdata))) {
+                addr = (addr & ~(range - 1)) + ((uint32_t *)(addr + i))[3];
+                *iat = (uint32_t *)addr;
+                *start = addr;
+                break;
+            }
+        }
+        for (int i = 0; (addr != (uint32_t)(*iat)) && (i < range); i += 0x04) {
+            if(!memcmp((void *)(addr + i), dtext, sizeof(dtext))) {
                 addr = (addr & ~(range - 1)) + ((uint32_t *)(addr + i))[3];
                 *iat = (uint32_t *)addr;
                 *start = addr;
@@ -161,7 +169,8 @@ static void HookPatchTimer(const uint32_t start, const uint32_t *iat, const DWOR
     if (addr && (addr == (uint32_t)patch) &&
         VirtualProtect(patch, sizeof(intptr_t), PAGE_EXECUTE_READWRITE, &oldProt)) {
         DWORD hkTime = (DWORD)GetProcAddress(GetModuleHandle("winmm.dll"), funcTime),
-              hkPerf = (DWORD)GetProcAddress(GetModuleHandle("kernel32.dll"), funcPerf);
+              hkPerf = (VER_PLATFORM_WIN32_WINDOWS == fxCompatPlatformId(0))?
+                  (DWORD)GetProcAddress(GetModuleHandle("kernel32.dll"), funcPerf):0;
         for (int i = 0; i < (range >> 2); i++) {
             if (hkTime && (hkTime == patch[i])) {
                 HookEntryHook(&patch[i], patch[i]);
@@ -184,7 +193,7 @@ static void HookPatchTimer(const uint32_t start, const uint32_t *iat, const DWOR
 
 void HookTimeGetTime(const uint32_t caddr)
 {
-    uint32_t addr, *patch;
+    uint32_t addr, *patch, range;
     SYSTEM_INFO si;
     char buffer[MAX_PATH + 1], dotstr[] = ".hook";
     unsigned int len = GetModuleFileName(0, buffer, sizeof(buffer));
@@ -247,14 +256,16 @@ void HookTimeGetTime(const uint32_t caddr)
     }
 #define TICK_HOOK(mod) \
     addr = (uint32_t)GetModuleHandle(mod); \
+    addr = (addr)? addr:((uint32_t)LoadLibrary(mod)); \
     for (int i = 0; addr && (i < si.dwPageSize); i+=0x04) { \
         if (0x4550U == *(uint32_t *)addr) break; \
         addr += 0x04; \
     } \
     addr = (addr && (0x4550U == *(uint32_t *)addr))? addr:0; \
     patch = (uint32_t *)(addr & ~(si.dwPageSize - 1)); \
-    HookParseRange(&addr, &patch, si.dwPageSize); \
-    HookPatchTimer(addr, patch, si.dwPageSize - (((uint32_t)patch) & (si.dwPageSize - 1)));
+    range = si.dwPageSize; \
+    HookParseRange(&addr, &patch, &range); \
+    HookPatchTimer(addr, patch, range - (((uint32_t)patch) & (si.dwPageSize - 1)));
     for (int i = 0; i <= modList.modNum; i++) {
         TICK_HOOK(modList.modName[i]);
     }
