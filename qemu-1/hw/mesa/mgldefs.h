@@ -2136,6 +2136,7 @@
 #define GL_TRANSPOSE_TEXTURE_MATRIX       0x84E5
 #define GL_TRANSPOSE_COLOR_MATRIX         0x84E6
 #define GL_COLOR_MATRIX                   0x80B1
+#define GL_COLOR_SUM                      0x8458
 #define GL_TEXTURE0_ARB                   0x84C0
 #define GL_TEXTURE1_ARB                   0x84C1
 #define GL_TEXTURE2_ARB                   0x84C2
@@ -2176,6 +2177,7 @@
 #define GL_POINT_SMOOTH 0x0B10
 #define GL_LIGHTING 0x0B50
 #define GL_FOG 0x0B60
+#define GL_NORMALIZE 0x0BA1
 #define GL_ALPHA_TEST 0x0BC0
 #define GL_AUX_BUFFERS 0x0C00
 #define GL_TEXTURE_GEN_S 0x0C60

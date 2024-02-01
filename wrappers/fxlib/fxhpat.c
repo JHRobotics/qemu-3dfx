@@ -29,12 +29,26 @@ static struct E_PATCH engrel_cursor[] = {
     PATCH_D(0x1805a, "\x38\xC4"),
     E_PATCH_END()
 };
+static struct E_PATCH req_demo[] = {
+    PATCH_D(0x64a0c, "\xEB"),
+    E_PATCH_END()
+};
 static struct E_PATCH d3d_exe[] = {
     PATCH_D(0x65b2d, "\xEB"),
     E_PATCH_END()
 };
 static struct E_PATCH hg_exe[] = {
     PATCH_D(0x0133e, "\x90\x90"),
+    E_PATCH_END()
+};
+static struct E_PATCH tomb3_exe_1[] = {
+    PATCH_D(0x8ec41, "\xB4\x01\x90"),
+    PATCH_D(0x8ec52, "\xB0\x00\x90"),
+    E_PATCH_END()
+};
+static struct E_PATCH tomb3_exe_2[] = {
+    PATCH_D(0x97321, "\xB4\x01\x90"),
+    PATCH_D(0x97332, "\xB0\x00\x90"),
     E_PATCH_END()
 };
 static struct E_PATCH tomb4_exe[] = {
@@ -59,6 +73,14 @@ static struct E_PATCH go_g400_3[] = {
     PATCH_D(0x097a9, "\xEB"),
     E_PATCH_END()
 };
+static struct E_PATCH turok_dem[] = {
+    PATCH_D(0x0c6e2, "\xEB\x06"),
+    E_PATCH_END()
+};
+static struct E_PATCH turok_exe[] = {
+    PATCH_D(0x0c122, "\xEB\x06"),
+    E_PATCH_END()
+};
 static COMPATFX fxCompatTbl[] = {
     /* Rage Expendable Retailed & G400 EMBM */
     { "go.exe", "330113cfeb00ae4de299f041fb5714ba", HP_ANYO, go_g400_3 },
@@ -75,12 +97,21 @@ static COMPATFX fxCompatTbl[] = {
     /* Warhammer: Dark Omen */
     { "engrel.exe", "8dc25757be926088167cb1663b7c7b76", HP_ANYO, engrel_blit },
     { "engrel.exe", "1a0b17352c8fee8c62732ef4f7aae95f", HP_2KXP, engrel_cursor },
+    /* Requiem Demo D3D */
+    { "reqdemo_d3d.exe", "2ee1cf9120c4f13eef06da62600b0c23", HP_ANYO, req_demo },
     /* Requiem D3D 1.2 */
     { "d3d.exe",   "b783b9fbca594286b606eb07912740b6", HP_ANYO, d3d_exe },
     /* Heavy Gear 1.2 */
     { "hg.exe",    "4685aa795e3916c1bb0de5616a86bfa0", HP_2KXP, hg_exe },
+    /* Tomb Raider III */
+    { "tomb3.exe", "47c2bb0445fce035d2d264b71bf1faae", HP_2KXP, tomb3_exe_1 },
+    { "tomb3.exe", "160e4d0cc6740731ff4598c47c75719c", HP_2KXP, tomb3_exe_2 },
     /* Tomb Raider IV */
     { "tomb4.exe", "e720ab3d4682cbd563a9c3943812fcac", HP_2KXP, tomb4_exe },
+    /* Turok Demo v1.01 */
+    { "TurokDemo.exe", "58d26953c755bcc64f330f1a3c0441bd", HP_ANYO, turok_dem },
+    /* Turok Dinosaur Hunter USA v1.0 */
+    { "Turok.exe", "cba05017b943451e8a7b55f22a3d0de9", HP_ANYO, turok_exe },
     E_PATCH_END()
 };
    

@@ -357,6 +357,8 @@ static void InitClientStates(MesaPTState *s)
 
 static void dispTimerProc(void *opaque)
 {
+    MesaPTState *s = opaque;
+    s->perfs.last();
     MGLActivateHandler(0, 1);
 }
 
@@ -2077,7 +2079,7 @@ static void processFRet(MesaPTState *s)
                         "WGL_3DFX_gamma_control"
                         ;
 #define XSTR_ADD(s) { \
-    size_t len = strnlen(s, sizeof(s)); \
+    len = strnlen(s, sizeof(s)); \
     memcpy(xbuf, s, len); \
     xbuf += len; \
     *(xbuf++) = ' '; }
@@ -2300,7 +2302,7 @@ static void mesapt_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
                         DPRINTF("MappedBufferObject %s-copy", MGLUpdateGuestBufo(0, 0)? "Zero":"One");
                         DPRINTF("Guest GL Extensions pass-through for Year %s Length %s",
                                 (s->extnYear)? xYear:"ALL", (s->extnLength)? xLen:"ANY");
-                        s->dispTimer = (disptmr)? timer_new_ms(QEMU_CLOCK_VIRTUAL, dispTimerProc, 0):0;
+                        s->dispTimer = (disptmr)? timer_new_ms(QEMU_CLOCK_VIRTUAL, dispTimerProc, s):0;
                         dispTimerSched(s->dispTimer);
                     }
                     else {
@@ -2336,7 +2338,8 @@ static void mesapt_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
                 s->perfs.stat();
                 do {
                     uint32_t *swapRet = (uint32_t *)(s->fifo_ptr + (MGLSHM_SIZE - ALIGNED(1)));
-                    DPRINTF_COND(SwapFpsLimit(swapRet[0]), "Guest GL Swap limit [ %d FPS ]", GetFpsLimit());
+                    DPRINTF_COND((SwapFpsLimit(swapRet[0]) && swapRet[0] != 0x7FU),
+                            "Guest GL Swap limit [ %d FPS ]", GetFpsLimit());
                     swapRet[0] = MGLSwapBuffers()? ((GetFpsLimit() << 1) | 1):0;
                     MGLMouseWarp(swapRet[1]);
                     dispTimerSched(s->dispTimer);
