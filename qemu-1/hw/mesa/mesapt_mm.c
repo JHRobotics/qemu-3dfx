@@ -2350,10 +2350,12 @@ static void mesapt_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
     int enable = (*(int *)ppfd) & 0x01U, \
         disable = (*(int *)ppfd) & 0x02U, \
         msaa = (*(int *)ppfd) & 0x0CU, \
+        flip = (*(int *)ppfd) & 0x10U, \
         msec = *(int *)PTR(ppfd, sizeof(int)); \
     GLBufOAccelCfg(enable); \
     GLRenderScaler(disable); \
     GLContextMSAA(msaa); \
+    GLBlitFlip(flip); \
     GLDispTimerCfg(msec)
                 do {
                     uint8_t *ppfd = s->fifo_ptr + (MGLSHM_SIZE - PAGE_SIZE);
@@ -2372,10 +2374,23 @@ static void mesapt_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
                 break;
             case 0xFE4:
                 do {
+                    static int64_t pixfmt_ts;
+                    int64_t curr_ts = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
                     uint8_t *ppfd = s->fifo_ptr + (MGLSHM_SIZE - PAGE_SIZE);
                     int pixfmt = *(int *)ppfd;
+                    int ptm = *(int *)PTR(ppfd, sizeof(int));
                     s->procRet = MGLSetPixelFormat(pixfmt, PTR(ppfd, ALIGNED(sizeof(int))))?
                         (((uint32_t*)s->fifo_ptr)[1]? MESAGL_MAGIC:0):0;
+                    if ((curr_ts - pixfmt_ts) > MESAGL_CRASH_RC) {
+                        uint32_t *fifoptr = (uint32_t *)s->fifo_ptr,
+                                 *dataptr = (uint32_t *)(s->fifo_ptr + (MAX_FIFO << 2));
+                        pixfmt_ts = curr_ts;
+                        if ((fifoptr[1] & 0xFFFFF000U) != ptm) {
+                            DPRINTF("..warped %08x-%08x", fifoptr[1] & 0xFFFFF000U, ptm);
+                            fifoptr[1] = (fifoptr[1] & 0xFFFU) | ptm;
+                        }
+                        DPRINTF_COND((dataptr[1] > 1), "..reset refcnt %04x", dataptr[1]--);
+                    }
                 } while(0);
                 break;
             case 0xFE0:
@@ -2407,7 +2422,9 @@ static void mesapt_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
                     }
                     if (strncmp((const char *)func, "wglSetDeviceCursor3DFX", 64) == 0) {
                         uint32_t *argsp = (uint32_t *)(func + ALIGNED(strnlen((const char *)func, 64)));
-                        uint8_t *data = s->fbtm_ptr + (MGLFBT_SIZE - ALIGNED(argsp[2] * argsp[3] * sizeof(uint32_t)));
+                        uint8_t *data = (argsp[3] & 1)?
+                            s->fbtm_ptr + (MGLFBT_SIZE - ALIGNED(argsp[2] *(argsp[3] >> 3))):
+                            s->fbtm_ptr + (MGLFBT_SIZE - ALIGNED(argsp[2] * argsp[3] * sizeof(uint32_t)));
                         MGLCursorDefine(argsp[0], argsp[1], argsp[2], argsp[3], data);
                     }
                 } while(0);
