@@ -470,6 +470,11 @@ static void parse_options(struct mglOptions *opt)
 {
     FILE *f = opt_fopen();
     memset(opt, 0, sizeof(struct mglOptions));
+    /* Sync host color cursor only for Bochs SVGA */
+    DISPLAY_DEVICE dd = { .cb = sizeof(DISPLAY_DEVICE) };
+    const char vidstr[] = "QEMU Bochs";
+    swapCur = (EnumDisplayDevices(NULL, 0, &dd, 0) &&
+        !memcmp(dd.DeviceString, vidstr, strlen(vidstr)))? 1:0;
     if (f) {
         char line[MAX_XSTR];
         int i, v;
@@ -492,17 +497,12 @@ static void parse_options(struct mglOptions *opt)
             opt->vsyncOff = ((i == 1) && v)? 1:opt->vsyncOff;
             i = parse_value(line, "ExtensionsYear,", &v);
             opt->xstrYear = (i == 1)? v:opt->xstrYear;
-            i = parse_value(line, "HCursorSync,", &v);
-            swapCur = ((i == 1) && v)? 1:swapCur;
+            i = parse_value(line, "CursorSyncOff,", &v);
+            swapCur = ((i == 1) && v)? 0:swapCur;
             i = parse_value(line, "FpsLimit,", &v);
             swapFps = (i == 1)? (v & 0x7FU):swapFps;
         }
         fclose(f);
-        /* Sync host color cursor only for Bochs SVGA */
-        DISPLAY_DEVICE dd = { .cb = sizeof(DISPLAY_DEVICE) };
-        const char vidstr[] = "QEMU Bochs";
-        swapCur = (EnumDisplayDevices(NULL, 0, &dd, 0) &&
-            !memcmp(dd.DeviceString, vidstr, strlen(vidstr)))? swapCur:0;
     }
 }
 
@@ -16927,7 +16927,12 @@ static void wglFreeMemoryNV(void *pointer) { }
 static void WINAPI
 wglSetDeviceCursor3DFX(HCURSOR hCursor)
 {
+    static HCURSOR last_cur;
     ICONINFO ic;
+
+    if (last_cur == hCursor)
+        return;
+
     BOOL (WINAPI *p_DeleteObject)(HANDLE) = (BOOL (WINAPI *)(HANDLE))
         GetProcAddress(GetModuleHandle("gdi32.dll"), "DeleteObject");
     int (WINAPI *p_GetDIBits)(HDC, HBITMAP, UINT, UINT, LPVOID, LPBITMAPINFO, UINT) =
@@ -16964,6 +16969,7 @@ wglSetDeviceCursor3DFX(HCURSOR hCursor)
                     data[i] = (data[i] && (data[i] ^ COLOR_MASK))?
                         (data[i] | ALPHA_MASK):COLOR_MASK;
             ptm[0xFDC >> 2] = MESAGL_MAGIC;
+            last_cur = hCursor;
         }
     }
     if (p_DeleteObject) {
@@ -17283,7 +17289,6 @@ uint32_t PT_CALL mglUseFontOutlinesW(uint32_t arg0, uint32_t arg1, uint32_t arg2
 
 int WINAPI wglSwapBuffers (HDC hdc)
 {
-    static HCURSOR hcur;
     static POINT last_pos;
     static uint32_t timestamp;
     uint32_t ret, *swapRet = &mfifo[(MGLSHM_SIZE - ALIGNED(1)) >> 2];
@@ -17306,10 +17311,8 @@ int WINAPI wglSwapBuffers (HDC hdc)
                 ci.ptScreenPos.y = MulDiv(ci.ptScreenPos.y, GetSystemMetrics(SM_CYSCREEN) - 1,
                         (wr.bottom - wr.top - 1));
                 memcpy(&last_pos, &ci.ptScreenPos, sizeof(POINT));
-                if (swapCur && hcur != ci.hCursor) {
-                    hcur = ci.hCursor;
-                    wglSetDeviceCursor3DFX(hcur);
-                }
+                if (swapCur)
+                    wglSetDeviceCursor3DFX(ci.hCursor);
             }
         }
     }
