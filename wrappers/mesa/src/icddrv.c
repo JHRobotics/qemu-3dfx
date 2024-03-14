@@ -907,6 +907,7 @@ uint32_t PT_CALL mglMakeCurrent(uint32_t arg0, uint32_t arg1);
 uint32_t PT_CALL mglDeleteContext(uint32_t arg0);
 uint32_t PT_CALL mglGetCurrentContext(void);
 uint32_t PT_CALL mglCopyContext(uint32_t arg0, uint32_t arg1, uint32_t arg2);
+uint32_t PT_CALL mglGetProcAddress(uint32_t arg0);
 
 HGLRC WINAPI private_wglCreateContextAttribsARB(HDC hDC, HGLRC hShareContext, const int *attribList);
 uint32_t WINAPI private_wglMakeContextCurrentARB(uint32_t arg0, uint32_t arg1, uint32_t arg2);
@@ -1215,6 +1216,17 @@ BOOL WINAPI wglMakeContextCurrentARB(HDC hDrawDC, HDC hReadDC, HGLRC hglrc)
 	return FALSE;
 }
 
+void *WINAPI mgdGetProcAddress(const char *name)
+{
+	void *proc = GetProcAddress(DLLModule, name);
+	if(proc == NULL)
+	{
+		proc = (void*)mglGetProcAddress((uint32_t)name);
+	}
+	
+	return proc;
+}
+
 /* aliases */
 #define MK_ALIAS(_newname, _oldname, _type, _call, _params_def, _params_call) \
 	_type _call _oldname _params_def; \
@@ -1230,9 +1242,6 @@ MK_ALIAS(mgdDescribeLayerPlane, mglDescribeLayerPlane, BOOL, WINAPI,
 MK_ALIAS(mgdGetLayerPaletteEntries, mglGetLayerPaletteEntries, int, WINAPI,
 	(HDC hdc, int iLayerPlane, int iStart, int cEntries, COLORREF *pcr),
 	(hdc, iLayerPlane, iStart, cEntries, pcr));
-
-MK_ALIAS(mgdGetProcAddress, mglGetProcAddress, uint32_t, PT_CALL,
-	(uint32_t arg0), (arg0));
 
 MK_ALIAS(mgdRealizeLayerPalette, mglRealizeLayerPalette, BOOL, WINAPI,
 	(HDC hdc, int iLayerPlane, BOOL bRealize),
