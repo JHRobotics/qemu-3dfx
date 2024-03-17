@@ -51,7 +51,7 @@ $(TARGETICD): $(C_OBJS) szdata.o wrapgl32_icd.o icddrv.o stamp.o
 	@echo "  LDFLAGS $(LDFLAGS)"
 	@$(CC) -shared $(CFLAGS) -o $@ $+ $(LDFLAGS)
 	@$(GENDEF) - $@ | sed "s/\(@[0-9]*\)@.*/\1/;s/\(^.*\)\(@[0-9]*\)/\1\ =\ \1\2/;/CallWndProc/d;s/^mgl/wgl/;s/wgd//;s/^mgd/Drv/;/^private/d" | \
-		sed "s/\ ;\ Check!!!.*//" | \
+		sed "s/\ ;\ Check!!!.*//;/lto_priv/d;/CallWndProc/d" | \
 		grep -e ^LIB -e ^EXP -e "\ =\ " > $(@:.dll=.def)
 	@echo "  LD  $@"
 	@$(CC) -shared $(CFLAGS) -o $@ $(@:dll=def) $+ $(LDFLAGS)
