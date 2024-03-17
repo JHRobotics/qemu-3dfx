@@ -13,7 +13,9 @@
 #define INLINE inline
 #define PT_CALL __stdcall
 #define COMPACT __attribute__((optimize("Os")))
-#define COMPACT_FRAME COMPACT __attribute__((optimize("-fno-omit-frame-pointer")))
+#define COMPACT_FRAME COMPACT \
+    __attribute__((target("no-sse2"))) \
+    __attribute__((optimize("-fno-omit-frame-pointer")))
 #define LOG_NAME "C:\\WRAPGL32.LOG"
 #define TRACE_PNAME(p) \
     if ((logpname[p>>3] & (1<<(p%8))) == 0) { \
@@ -17402,7 +17404,8 @@ wglSetPixelFormat(HDC hdc, int format, const PIXELFORMATDESCRIPTOR *ppfd)
 {
     uint32_t ret, *rsp, *xppfd;
     asm volatile("lea 0x04(%%ebp), %0;":"=rm"(rsp));
-    ret = (rsp[5] == rsp[1])? rsp[4]:((rsp[9] == rsp[1])? rsp[8]:rsp[0]);
+    ret = ((rsp[5] == rsp[1]) && (rsp[6] == rsp[2]))? rsp[4]:
+          ((rsp[9] == rsp[1])? rsp[8]:rsp[0]);
     HookDeviceGammaRamp(ret);
     HookTimeGetTime(ret);
     if (currGLRC) {
