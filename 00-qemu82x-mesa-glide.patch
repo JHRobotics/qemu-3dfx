@@ -16,14 +16,14 @@ diff -Nru ../orig/qemu-8.2.1/accel/kvm/kvm-all.c ./accel/kvm/kvm-all.c
 +
 +    memset(&ram_block, 0, sizeof(RAMBlock));
 +    ram_block.mr = &mr;
-+    ram_block.used_length = HOST_PAGE_ALIGN(size);
-+    ram_block.max_length = HOST_PAGE_ALIGN(size);
++    ram_block.used_length = REAL_HOST_PAGE_ALIGN(size);
++    ram_block.max_length = REAL_HOST_PAGE_ALIGN(size);
 +    ram_block.fd = -1;
 +    ram_block.page_size = getpagesize();
 +    ram_block.host = host_va;
 +    ram_block.flags |= RAM_PREALLOC;
 +
-+    memory_region_init(&mr, NULL, NULL, HOST_PAGE_ALIGN(size));
++    memory_region_init(&mr, NULL, NULL, REAL_HOST_PAGE_ALIGN(size));
 +    mr.ram = true;
 +    mr.ram_block = &ram_block;
 +    mr.readonly = readonly;
@@ -128,15 +128,24 @@ diff -Nru ../orig/qemu-8.2.1/include/sysemu/whpx.h ./include/sysemu/whpx.h
 diff -Nru ../orig/qemu-8.2.1/include/ui/console.h ./include/ui/console.h
 --- ../orig/qemu-8.2.1/include/ui/console.h
 +++ ./include/ui/console.h
-@@ -403,6 +403,7 @@
+@@ -154,6 +154,8 @@
+     uint32_t  width;
+     uint32_t  height;
+     uint32_t  refresh_rate;
++    /* passthrough */
++    bool passthrough;
+ } QemuUIInfo;
+
+ /* cursor data format is 32bit RGBA */
+@@ -403,6 +405,7 @@
                                 void *opaque);
  void graphic_console_close(QemuConsole *con);
 
-+int graphic_hw_halt(const int);
++void graphic_hw_passthrough(QemuConsole *con, bool passthrough);
  void graphic_hw_update(QemuConsole *con);
  void graphic_hw_update_done(QemuConsole *con);
  void graphic_hw_invalidate(QemuConsole *con);
-@@ -497,4 +498,19 @@
+@@ -497,4 +500,19 @@
                                        size_t size,
                                        Error **errp);
  
@@ -205,7 +214,7 @@ diff -Nru ../orig/qemu-8.2.1/system/vl.c ./system/vl.c
  static void version(void)
  {
      printf("QEMU emulator version " QEMU_FULL_VERSION "\n"
-@@ -2998,6 +3005,7 @@
+@@ -3002,6 +3009,7 @@
                  break;
              case QEMU_OPTION_version:
                  version();
@@ -236,14 +245,14 @@ diff -Nru ../orig/qemu-8.2.1/target/i386/whpx/whpx-all.c ./target/i386/whpx/whpx
 +
 +    memset(&ram_block, 0, sizeof(RAMBlock));
 +    ram_block.mr = &mr;
-+    ram_block.used_length = HOST_PAGE_ALIGN(size);
-+    ram_block.max_length = HOST_PAGE_ALIGN(size);
++    ram_block.used_length = REAL_HOST_PAGE_ALIGN(size);
++    ram_block.max_length = REAL_HOST_PAGE_ALIGN(size);
 +    ram_block.fd = -1;
 +    ram_block.page_size = getpagesize();
 +    ram_block.host = host_va;
 +    ram_block.flags |= RAM_PREALLOC;
 +
-+    memory_region_init(&mr, NULL, NULL, HOST_PAGE_ALIGN(size));
++    memory_region_init(&mr, NULL, NULL, REAL_HOST_PAGE_ALIGN(size));
 +    mr.ram = true;
 +    mr.ram_block = &ram_block;
 +    mr.readonly = readonly;
@@ -266,25 +275,23 @@ diff -Nru ../orig/qemu-8.2.1/target/i386/whpx/whpx-all.c ./target/i386/whpx/whpx
 diff -Nru ../orig/qemu-8.2.1/ui/console.c ./ui/console.c
 --- ../orig/qemu-8.2.1/ui/console.c
 +++ ./ui/console.c
-@@ -125,6 +125,13 @@
+@@ -125,6 +125,11 @@
      }
  }
 
-+int graphic_hw_halt(const int enable)
++void graphic_hw_passthrough(QemuConsole *con, bool passthrough)
 +{
-+    static int halt_en;
-+    halt_en = (enable & 0x80U)? (enable & 0x01U):halt_en;
-+    return halt_en;
++    con->ui_info.passthrough = passthrough;
 +}
 +
  void graphic_hw_update_done(QemuConsole *con)
  {
      if (con) {
-@@ -140,6 +147,8 @@
+@@ -140,6 +145,8 @@
          return;
      }
      if (con->hw_ops->gfx_update) {
-+        if (graphic_hw_halt(0)) { }
++        if (con->ui_info.passthrough) { }
 +        else
          con->hw_ops->gfx_update(con->hw);
          async = con->hw_ops->gfx_update_async;
@@ -347,7 +354,7 @@ diff -Nru ../orig/qemu-8.2.1/ui/sdl2.c ./ui/sdl2.c
              sdl_grab_end(scon);
          }
          break;
-@@ -794,6 +819,366 @@
+@@ -794,6 +819,361 @@
      SDL_QuitSubSystem(SDL_INIT_VIDEO);
  }
  
@@ -373,13 +380,8 @@ diff -Nru ../orig/qemu-8.2.1/ui/sdl2.c ./ui/sdl2.c
 +} scon_cb;
 +static void sdl_gui_restart(struct sdl2_console *scon, SDL_Surface *icon)
 +{
-+    int top = 0;
-+    if (!gui_fullscreen) {
++    if (!gui_fullscreen)
 +        SDL_GetWindowPosition(scon->real_window, &scon->x, &scon->y);
-+#ifndef CONFIG_WIN32
-+        SDL_GetWindowBordersSize(scon->real_window, &top, 0, 0, 0);
-+#endif
-+    }
 +    fxui_grab_val(0x80 | gui_grab);
 +    sdl_grab_end(scon);
 +    sdl2_window_destroy(scon);
@@ -387,7 +389,7 @@ diff -Nru ../orig/qemu-8.2.1/ui/sdl2.c ./ui/sdl2.c
 +    if (icon)
 +        SDL_SetWindowIcon(scon->real_window, icon);
 +    if (!gui_fullscreen)
-+        SDL_SetWindowPosition(scon->real_window, scon->x, scon->y - top);
++        SDL_SetWindowPosition(scon->real_window, scon->x, scon->y);
 +}
 +static void sched_wndproc(void *opaque)
 +{
@@ -491,7 +493,7 @@ diff -Nru ../orig/qemu-8.2.1/ui/sdl2.c ./ui/sdl2.c
 +    if (s->res > 0)
 +        SDL_SetWindowSize(s->scon->real_window, (s->res & 0xFFFFU), (s->res >> 0x10));
 +    if (s->opaque || !s->render_pause)
-+        graphic_hw_halt(0x80U | s->render_pause);
++        graphic_hw_passthrough(s->scon->dcl.con, s->render_pause);
 +}
 +
 +static int sdl_gui_fullscreen(int *sizev, const char *feat)
@@ -675,8 +677,8 @@ diff -Nru ../orig/qemu-8.2.1/ui/sdl2.c ./ui/sdl2.c
 +    struct sdl_console_cb *s = &scon_cb;
 +
 +    QemuConsole *con = s->scon ? s->scon->dcl.con : NULL;
-+    QEMUCursor *c = cursor_alloc(width, (height & 1)? (height >> 1):height);
-+    if (con && c) {
++    if (con) {
++        QEMUCursor *c = cursor_alloc(width, (height & 1)? (height >> 1):height);
 +        c->hot_x = hot_x;
 +        c->hot_y = hot_y;
 +        if (height &  1) {
@@ -714,7 +716,7 @@ diff -Nru ../orig/qemu-8.2.1/ui/sdl2.c ./ui/sdl2.c
  static const DisplayChangeListenerOps dcl_2d_ops = {
      .dpy_name             = "sdl2-2d",
      .dpy_gfx_update       = sdl2_2d_update,
-@@ -948,6 +1333,7 @@
+@@ -948,6 +1328,7 @@
      g_free(dir);
      if (icon) {
          SDL_SetWindowIcon(sdl2_console[0].real_window, icon);

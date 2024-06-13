@@ -36,11 +36,11 @@ Simple guide to apply the patch:<br>
 
 ## Building Guest Wrappers
 **Requirements:**
- - `base-devel` (make, sed, xxd)
+ - `base-devel` (make, sed, xxd etc.)
  - `gendef, shasum`
  - `mingw32` cross toolchain (`binutils, gcc, windres, dlltool`) for WIN32 DLL wrappers
- - `Watcom C/C++ 11.0` for DOS32 OVL wrapper
- - `i686-pc-msdosdjgpp` cross toolchain (`binutils, gcc, dxe3gen`) for DJGPP DXE wrappers
+ - `Open-Watcom-1.9/v2.0` or `Watcom C/C++ 11.0` for DOS32 OVL wrapper
+ - `{i586,i686}-pc-msdosdjgpp` cross toolchain (`binutils, gcc, dxe3gen`) for DJGPP DXE wrappers
 <br>
 
     $ cd ~/myqemu/qemu-3dfx/wrappers/3dfx
@@ -74,6 +74,7 @@ For $89.99 donation, you will deserve the following donor's privileges:
 - QEMU-enhanced OpenGLide **Host-side wrappers** built for platform of your choice (choose **ONE**: Windows 10/11, Ubuntu, etc.)
 - QEMU-enhanced [**WineD3D libraries for Win98/2K/ME/XP VMs**](https://www.winehq.org) for DirectDraw/Direct3D games up to DirectX 9.0c
 - Game controllers support with [**QEMU USB Gamepad**](https://github.com/kjliew/qemu-3dfx/wiki/QEMU-USB-Gamepad)
+- SDL2 clipboard sharing through built-in [**QEMU vdagent**](https://www.kraxel.org/blog/2021/05/qemu-cut-paste/)
 - OpenGLide **Guest-side wrappers** for Windows
 - Elect up to 5 games for priority support and your name as the honorary sponsor in the supported & tested list of games.
 

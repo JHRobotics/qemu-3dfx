@@ -470,15 +470,19 @@ static int parse_value(const char *str, const char *tok, int *val)
         *val = strtol(str + strlen(tok), 0, 10);
     return ret;
 }
+static int display_device_supported(void)
+{
+    DISPLAY_DEVICE dd = { .cb = sizeof(DISPLAY_DEVICE) };
+    const char vidstr[] = "QEMU Bochs";
+    return (EnumDisplayDevices(NULL, 0, &dd, 0) &&
+        !memcmp(dd.DeviceString, vidstr, strlen(vidstr)))? 1:0;
+}
 static void parse_options(struct mglOptions *opt)
 {
     FILE *f = opt_fopen();
     memset(opt, 0, sizeof(struct mglOptions));
     /* Sync host color cursor only for Bochs SVGA */
-    DISPLAY_DEVICE dd = { .cb = sizeof(DISPLAY_DEVICE) };
-    const char vidstr[] = "QEMU Bochs";
-    swapCur = (EnumDisplayDevices(NULL, 0, &dd, 0) &&
-        !memcmp(dd.DeviceString, vidstr, strlen(vidstr)))? 1:0;
+    swapCur = display_device_supported();
     if (f) {
         char line[MAX_XSTR];
         int i, v;
@@ -5692,8 +5696,11 @@ void PT_CALL glGetTextureSubImage(uint32_t arg0, uint32_t arg1, uint32_t arg2, u
     pt0 = (uint32_t *)pt[0]; *pt0 = FEnum_glGetTextureSubImage;
 }
 void PT_CALL glGetTrackMatrixivNV(uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+    uint32_t n;
     pt[1] = arg0; pt[2] = arg1; pt[3] = arg2; pt[4] = arg3; 
     pt0 = (uint32_t *)pt[0]; *pt0 = FEnum_glGetTrackMatrixivNV;
+    fifoOutData(0, (uint32_t)&n, sizeof(uint32_t));
+    fifoOutData(ALIGNED(sizeof(uint32_t)), arg3, n*sizeof(int));
 }
 void PT_CALL glGetTransformFeedbackVarying(uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint32_t arg5, uint32_t arg6) {
     uint32_t n, e;
@@ -16934,7 +16941,7 @@ wglSetDeviceCursor3DFX(HCURSOR hCursor)
     static HCURSOR last_cur;
     ICONINFO ic;
 
-    if (last_cur == hCursor)
+    if (!swapCur || (last_cur == hCursor))
         return;
 
     BOOL (WINAPI *p_DeleteObject)(HANDLE) = (BOOL (WINAPI *)(HANDLE))
@@ -17298,7 +17305,8 @@ int WINAPI wglSwapBuffers (HDC hdc)
     uint32_t ret, *swapRet = &mfifo[(MGLSHM_SIZE - ALIGNED(1)) >> 2];
     uint32_t t = GetTickCount();
     CURSORINFO ci = { .cbSize = sizeof(CURSORINFO) };
-    if (((t - timestamp) > (1000/60)) && GetCursorInfo(&ci)) {
+    if (((t - timestamp) >= 16) &&
+            display_device_supported() && GetCursorInfo(&ci)) {
         if (ci.flags != CURSOR_SHOWING)
             memset(&last_pos, 0, sizeof(POINT));
         else {
@@ -17315,8 +17323,7 @@ int WINAPI wglSwapBuffers (HDC hdc)
                 ci.ptScreenPos.y = MulDiv(ci.ptScreenPos.y, GetSystemMetrics(SM_CYSCREEN) - 1,
                         (wr.bottom - wr.top - 1));
                 memcpy(&last_pos, &ci.ptScreenPos, sizeof(POINT));
-                if (swapCur)
-                    wglSetDeviceCursor3DFX(ci.hCursor);
+                wglSetDeviceCursor3DFX(ci.hCursor);
             }
         }
     }
@@ -17408,6 +17415,8 @@ wglSetPixelFormat(HDC hdc, int format, const PIXELFORMATDESCRIPTOR *ppfd)
           ((rsp[9] == rsp[1])? rsp[8]:rsp[0]);
     HookDeviceGammaRamp(ret);
     HookTimeGetTime(ret);
+    if (!hdc && !format)
+        return 0;
     if (currGLRC) {
         mglMakeCurrent(0, 0);
         mglDeleteContext(MESAGL_MAGIC);
@@ -17426,6 +17435,27 @@ wglSetPixelFormat(HDC hdc, int format, const PIXELFORMATDESCRIPTOR *ppfd)
 BOOL WINAPI COMPACT
 wgdSetPixelFormat(HDC hdc, int format, const PIXELFORMATDESCRIPTOR *ppfd)
 { return wglSetPixelFormat(hdc, format, ppfd); }
+
+static void mglSetAffinity(void)
+{
+    const char *ThreadAffinity[] = {
+        "Unigine_x86",
+        0,
+    };
+    int i;
+    for (i = 0; ThreadAffinity[i]; i++) {
+        if (GetModuleHandle(ThreadAffinity[i]))
+            break;
+    }
+    DWORD affinityMask[2];
+    GetProcessAffinityMask(GetCurrentProcess(), &affinityMask[0], &affinityMask[1]);
+    if (ThreadAffinity[i])
+        SetThreadAffinityMask(GetCurrentThread(), (1 << ((GetCurrentThreadId() >> 2) &
+                        ((sizeof(DWORD) << 3) - __builtin_clz(affinityMask[0]) - 1))));
+    else
+        SetProcessAffinityMask(GetCurrentProcess(), (1 << ((GetCurrentProcessId() >> 2) &
+                        ((sizeof(DWORD) << 3) - __builtin_clz(affinityMask[0]) - 1))));
+}
 
 LRESULT CALLBACK CallWndProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
@@ -17501,10 +17531,7 @@ BOOL APIENTRY DllMain( HINSTANCE hModule,
     GetVersionEx(&osInfo);
     HookPatchfxCompat(osInfo.dwPlatformId);
     if (osInfo.dwPlatformId == VER_PLATFORM_WIN32_NT) {
-        DWORD affinityMask[2];
-        GetProcessAffinityMask(GetCurrentProcess(), &affinityMask[0], &affinityMask[1]);
-        SetThreadAffinityMask(GetCurrentThread(), (1 << ((GetCurrentThreadId() >> 2) &
-                        ((sizeof(DWORD) << 3) - __builtin_clz(affinityMask[0]) - 1))));
+        mglSetAffinity();
         kmdDrvInit(&drv);
     }
     else

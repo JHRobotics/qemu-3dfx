@@ -18,14 +18,15 @@
  * if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <string.h>
-#include <stdio.h>
+#include "qemu/osdep.h"
+
 #include "mesagl_impl.h"
 
 int mesa_gui_fullscreen(const void *);
 
 static struct {
-    unsigned prog, vert, frag, black, vao, vbo;
+    unsigned vao, vbo;
+    int prog, vert, frag, black;
     int adj, flip;
 } blit;
 static unsigned blit_program_setup(void)
@@ -81,12 +82,12 @@ static unsigned blit_program_setup(void)
         "    fragColor = texture(screen_texture, texcoord);\n"
         "}\n"
     };
-    unsigned prog;
+    int prog;
     if (!blit.prog) {
         int i = memcmp(PFN_CALL(glGetString(GL_VERSION)), "2.1 Metal",
                 sizeof("2.1 Metal") - 1)? 1:0,
             srclen = ALIGNED((strlen(vert_src[i])+1));
-        char srcbuf[srclen];
+        char *srcbuf = g_new0(char, srclen);
         const char *vert_buf[] = { srcbuf };
         strncpy(srcbuf, vert_src[i], srclen);
         if (blit.flip) {
@@ -96,6 +97,7 @@ static unsigned blit_program_setup(void)
         blit.vert = PFN_CALL(glCreateShader(GL_VERTEX_SHADER));
         PFN_CALL(glShaderSource(blit.vert, 1, vert_buf, 0));
         PFN_CALL(glCompileShader(blit.vert));
+        g_free(srcbuf);
         blit.frag = PFN_CALL(glCreateShader(GL_FRAGMENT_SHADER));
         PFN_CALL(glShaderSource(blit.frag, 1, &frag_src[i], 0));
         PFN_CALL(glCompileShader(blit.frag));
@@ -107,7 +109,7 @@ static unsigned blit_program_setup(void)
         PFN_CALL(glLinkProgram(prog));
         blit.prog = prog;
     }
-    PFN_CALL(glGetIntegerv(GL_CURRENT_PROGRAM, (int *)&prog));
+    PFN_CALL(glGetIntegerv(GL_CURRENT_PROGRAM, &prog));
     PFN_CALL(glUseProgram(blit.prog));
     blit.black = PFN_CALL(glGetUniformLocation(blit.prog, "frag_just_black"));
     return prog;
@@ -130,10 +132,12 @@ void MesaBlitFree(void)
     memset(&blit, 0, sizeof(blit));
 }
 struct save_states {
-    unsigned view[4];
-    unsigned texture, texture_binding,
-             vao_binding, vbo_binding, boolean_map;
+    int view[4];
+    int draw_binding, read_binding, texture, texture_binding,
+        vao_binding, vbo_binding, boolean_map;
 };
+#define FRAMEBUFFER_SRGB_(s) \
+    (s.boolean_map & 2)
 struct states_mapping {
     int gl_enum, *iv;
 };
@@ -157,23 +161,17 @@ static int blit_program_buffer(void *save_map, const int size, const void *data)
     MESA_PFN(PFNGLGETINTEGERVPROC,     glGetIntegerv);
     MESA_PFN(PFNGLISENABLEDPROC,       glIsEnabled);
 
-    int view[4];
     struct save_states *last = (struct save_states *)save_map;
 
-    PFN_CALL(glGetIntegerv(GL_VIEWPORT, view));
-    if (view[0] || view[1] ||
-        (!blit.flip && (last->view[0] == view[2])))
-        return 1;
-    memcpy(last->view, view, sizeof(view));
-
     struct states_mapping mapping[] = {
-        { GL_FRAMEBUFFER_BINDING, (int *)&last->view[0] },
-        { GL_READ_FRAMEBUFFER_BINDING, (int *)&last->view[1] },
-        { GL_ACTIVE_TEXTURE, (int *)&last->texture },
-        { GL_TEXTURE_BINDING_2D, (int *)&last->texture_binding },
-        { GL_VERTEX_ARRAY_BINDING, (int *)&last->vao_binding },
-        { GL_ARRAY_BUFFER_BINDING, (int *)&last->vbo_binding },
-        { GL_CONTEXT_PROFILE_MASK, (int *)&last->boolean_map },
+        { GL_VIEWPORT, last->view },
+        { GL_FRAMEBUFFER_BINDING, &last->draw_binding },
+        { GL_READ_FRAMEBUFFER_BINDING, &last->read_binding },
+        { GL_ACTIVE_TEXTURE, &last->texture },
+        { GL_TEXTURE_BINDING_2D, &last->texture_binding },
+        { GL_VERTEX_ARRAY_BINDING, &last->vao_binding },
+        { GL_ARRAY_BUFFER_BINDING, &last->vbo_binding },
+        { GL_CONTEXT_PROFILE_MASK, &last->boolean_map },
         { 0, 0 },
     };
     for (int i = 0; mapping[i].gl_enum; i++)
@@ -194,7 +192,7 @@ static int blit_program_buffer(void *save_map, const int size, const void *data)
         PFN_CALL(glGenBuffers(1, &blit.vbo));
     PFN_CALL(glBindBuffer(GL_ARRAY_BUFFER, blit.vbo));
     PFN_CALL(glBufferData(GL_ARRAY_BUFFER, size, data, GL_STATIC_DRAW));
-    return last->view[0];
+    return 0;
 }
 static void blit_restore_savemap(const void *save_map)
 {
@@ -210,6 +208,9 @@ static void blit_restore_savemap(const void *save_map)
     PFN_CALL(glBindBuffer(GL_ARRAY_BUFFER, last->vbo_binding));
 
     for (int i = 0; boolean_states[i]; i++) {
+        if ((boolean_states[i] == GL_FRAMEBUFFER_SRGB)
+                && !(last->read_binding == last->draw_binding))
+            continue;
         if (last->boolean_map & (2 << i))
             PFN_CALL(glEnable(boolean_states[i]));
     }
@@ -223,6 +224,7 @@ void MesaBlitScale(void)
     MESA_PFN(PFNGLDELETETEXTURESPROC,           glDeleteTextures);
     MESA_PFN(PFNGLDISABLEVERTEXATTRIBARRAYPROC, glDisableVertexAttribArray);
     MESA_PFN(PFNGLDRAWARRAYSPROC,               glDrawArrays);
+    MESA_PFN(PFNGLENABLEPROC,                   glEnable);
     MESA_PFN(PFNGLENABLEVERTEXATTRIBARRAYPROC,  glEnableVertexAttribArray);
     MESA_PFN(PFNGLGENTEXTURESPROC,              glGenTextures);
     MESA_PFN(PFNGLTEXPARAMETERIPROC,            glTexParameteri);
@@ -239,7 +241,8 @@ void MesaBlitScale(void)
     }
     blit.flip = ScalerBlitFlip();
 
-    if (DrawableContext() && (fullscreen || blit.flip || (v[3] > (v[1] & 0x7FFFU)))) {
+    if (DrawableContext() && ((!fullscreen && (v[3] > (v[1] & 0x7FFFU)))
+            || RenderScalerOff())) {
         unsigned screen_texture, w = v[0], h = v[1] & 0x7FFFU,
                 last_prog = blit_program_setup();
         int aspect = (v[1] & (1 << 15))? 0:1,
@@ -254,21 +257,22 @@ void MesaBlitScale(void)
             -1, 1, ((1.f * v[2] - v[0]) / v[2])-1, 1,
             -1,-1,  1,-1,  -1,1,  1,1,
         };
-        struct save_states save_map = {
-            .view[0] = v[0], .view[1] = v[1],
-        };
+
+        struct save_states save_map;
+
         if (!blit_program_buffer(&save_map, sizeof(coord), coord)) {
             PFN_CALL(glUniform1i(blit.black, GL_TRUE));
             PFN_CALL(glViewport(0,0,  v[2], v[3]));
             PFN_CALL(glEnableVertexAttribArray(0));
             PFN_CALL(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0));
-            if (save_map.view[1] == save_map.view[0]) {
+            if (save_map.read_binding == save_map.draw_binding) {
                 PFN_CALL(glActiveTexture(GL_TEXTURE0));
                 PFN_CALL(glGenTextures(1, &screen_texture));
                 PFN_CALL(glBindTexture(GL_TEXTURE_2D, screen_texture));
                 PFN_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
                 PFN_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-                PFN_CALL(glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0,0, w,h, 0));
+                PFN_CALL(glCopyTexImage2D(GL_TEXTURE_2D, 0, (FRAMEBUFFER_SRGB_(save_map) && ScalerSRGBCorr())?
+                            GL_SRGB:GL_RGBA, 0,0, w,h, 0));
                 if (aspect) {
                     PFN_CALL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)); /* clear */
                     PFN_CALL(glDrawArrays(GL_TRIANGLE_STRIP, 4, 4)); /* clear */
@@ -281,6 +285,8 @@ void MesaBlitScale(void)
                 PFN_CALL(glBindTexture(GL_TEXTURE_2D, save_map.texture_binding));
             }
             else {
+                if (FRAMEBUFFER_SRGB_(save_map))
+                    PFN_CALL(glEnable(boolean_states[0]));
                 if (aspect) {
                     PFN_CALL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)); /* clear */
                     PFN_CALL(glDrawArrays(GL_TRIANGLE_STRIP, 4, 4)); /* clear */
@@ -294,7 +300,8 @@ void MesaBlitScale(void)
                         GL_NEAREST));
             }
             PFN_CALL(glDisableVertexAttribArray(0));
-            PFN_CALL(glViewport(0,0, save_map.view[2],save_map.view[3]));
+            PFN_CALL(glViewport(save_map.view[0], save_map.view[1],
+                                save_map.view[2], save_map.view[3]));
             blit_restore_savemap(&save_map);
         }
         PFN_CALL(glUseProgram(last_prog));
@@ -324,8 +331,8 @@ void MesaRenderScaler(const uint32_t FEnum, void *args)
         default:
             return;
     }
-    if (!RenderScalerOff() && !framebuffer_binding
-            && fullscreen && DrawableContext()) {
+    if (DrawableContext() && !framebuffer_binding
+            && fullscreen && !RenderScalerOff()) {
         int offs_x = v[2] - ((1.f * v[0] * v[3]) / (v[1] & 0x7FFFU));
         offs_x >>= 1;
         for (int i = 0; i < 4; i++)
