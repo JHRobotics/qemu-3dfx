@@ -17504,7 +17504,7 @@ void load_rev()
 	      	
 	      	while(s <= 7)
 	      	{
-	      		rev_revised[1] = '-';
+	      		rev_revised[s] = '-';
 	      		s++;
 	      	}
 	      	
