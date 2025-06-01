@@ -49,14 +49,19 @@ int MGLUpdateGuestBufo(mapbufo_t *bufo, int add) { return 0; }
 #define GL_DELETECONTEXT(x)
 #define GL_CONTEXTATTRIB(x)
 #define GL_CREATECONTEXT(x)
-#endif
+#endif /* CONFIG_DARWIN */
 #ifdef CONFIG_LINUX
 #include <GL/glx.h>
-#include "sysemu/kvm.h"
+#include <linux/version.h>
+#include "system/kvm.h"
 
 int MGLUpdateGuestBufo(mapbufo_t *bufo, int add)
 {
-    int ret = GetBufOAccelEN()? kvm_enabled():0;
+    int ret = (GetBufOAccelEN()
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
+            || (bufo && bufo->tgt == GL_PIXEL_UNPACK_BUFFER)
+#endif
+            )? kvm_enabled():0;
 
     if (ret && bufo) {
         bufo->lvl = (add)? MapBufObjGpa(bufo):0;
@@ -137,10 +142,11 @@ int MGLUpdateGuestBufo(mapbufo_t *bufo, int add)
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, pfmsk); \
         if (flags) \
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, flags); \
+        SDL_SetRelativeMouseMode(SDL_FALSE); \
     } while(0)
 #define GL_CREATECONTEXT(x) \
     do { x = SDL_GL_CreateContext(window); } while(0)
-#endif
+#endif /* CONFIG_LINUX */
 #else
 #define MESAGL_SDLGL 0
 #endif
@@ -304,7 +310,7 @@ static int wnd_ready;
 static int cAlphaBits, cDepthBits, cStencilBits;
 static int cAuxBuffers, cSampleBuf[2];
 
-int glwnd_ready(void) { return wnd_ready; }
+int glwnd_ready(void) { return qatomic_read(&wnd_ready); }
 
 int MGLExtIsAvail(const char *xstr, const char *str)
 { return find_xstr(xstr, str); }
@@ -324,7 +330,8 @@ static void MesaInitGammaRamp(void)
         ramp.g[i] = (uint16_t)(((i << 8) | i) & 0xFFFFU);
         ramp.b[i] = (uint16_t)(((i << 8) | i) & 0xFFFFU);
     }
-    SDL_SetWindowGammaRamp(window, ramp.r, ramp.g, ramp.b);
+    if (window)
+        SDL_SetWindowGammaRamp(window, ramp.r, ramp.g, ramp.b);
 }
 
 static void cwnd_mesagl(void *swnd, void *nwnd, void *opaque)
@@ -333,8 +340,8 @@ static void cwnd_mesagl(void *swnd, void *nwnd, void *opaque)
 #ifdef CONFIG_DARWIN
     ctx[0] = SDL_GL_GetCurrentContext();
 #endif
-    wnd_ready = 1;
     DPRINTF("MESAGL window [SDL2 %p] ready", swnd);
+    qatomic_set(&wnd_ready, 1);
 }
 
 void SetMesaFuncPtr(void *p)
@@ -385,7 +392,7 @@ int MGLCreateContext(uint32_t gDC)
     }
     else {
         SDL_GL_MakeCurrent(window, NULL);
-        for (i = MAX_LVLCNTX; i > 1;) {
+        for (i = MAX_LVLCNTX; i > 0;) {
             if (ctx[--i]) {
                 GL_DELETECONTEXT(ctx[i]);
             }
@@ -427,7 +434,7 @@ int MGLSwapBuffers(void)
 
 static int MGLPresetPixelFormat(void)
 {
-    wnd_ready = 0;
+    qatomic_set(&wnd_ready, 0);
     ImplMesaGLReset();
     mesa_prepare_window(GetContextMSAA(), GL_CONTEXTALPHA, 0, &cwnd_mesagl);
 

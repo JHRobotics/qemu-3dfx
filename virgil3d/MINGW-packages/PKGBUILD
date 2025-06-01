@@ -3,7 +3,7 @@
 _realname=virglrenderer
 pkgbase=mingw-w64-${_realname}
 pkgname=${MINGW_PACKAGE_PREFIX}-${_realname}
-pkgver=1.0.1
+pkgver=1.1.1
 pkgrel=1
 pkgdesc='A virtual 3D GPU library, that allows the guest operating system to use the host GPU to accelerate 3D rendering'
 arch=('any')
@@ -12,13 +12,14 @@ url='https://virgil3d.github.io/'
 license=(MIT)
 depends=("${MINGW_PACKAGE_PREFIX}-libepoxy")
 makedepends=("${MINGW_PACKAGE_PREFIX}-python"
+             "${MINGW_PACKAGE_PREFIX}-python-yaml"
              "${MINGW_PACKAGE_PREFIX}-meson"
              "${MINGW_PACKAGE_PREFIX}-ninja")
 _tag=$pkgver
 source=("virglrenderer-$pkgver.tar.bz2::https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/$_tag/virglrenderer-$_tag.tar.bz2"
         "0001-Virglrenderer-on-Windows-and-macOS.patch")
-sha256sums=('53cb8fadd08f5260ee57833fc2488565481438bc7a8e34f3e114d12cc9d9db9a'
-            '80f83e1f171600991df54d10dce704a77a8609ad34b23b904568cbf86ea339bf')
+sha256sums=('0fe489a812fbeb3d6718199c27b0f36f8d51bc5c54d8093aad53b00d107de2b3'
+            '47c2573d6782214805b22735d0884472b67c84c06089a6b831f937cd7ddea5cf')
 
 prepare() {
   cd virglrenderer-$_tag
@@ -31,7 +32,7 @@ build() {
   cd virglrenderer-$_tag
   MSYS2_ARG_CONV_EXCL="--prefix" \
   CFLAGS="-march=x86-64-v2 -mtune=generic -flto -O3" \
-  meson --prefix="${MINGW_PREFIX}" build # -Dtests=true
+  meson setup --prefix="${MINGW_PREFIX}" build # -Dtests=true
   ninja -C build
 }
 

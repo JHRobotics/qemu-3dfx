@@ -23,13 +23,119 @@
 #include "mglfuncs.h"
 #include "mglmapbo.h"
 
+#if defined(__x86_64__)
+#if defined(__clang__)
+#pragma clang attribute push (__attribute((target("crc32"))), apply_to=function)
+#elif defined(__GNUC__)
+#pragma GCC push_options
+#pragma GCC target("crc32")
+#else
+#error Require either GCC or Clang to compile
+#endif
+#include <nmmintrin.h>
+#elif defined(__aarch64__)
+#define _mm_crc32_u64 __builtin_arm_crc32cd
+#else
+#error Undefined target CRC32 intrinsics
+#endif
 
 typedef struct _bufobj {
     mapbufo_t bo;
     struct _bufobj *next;
 } MAPBO, * PMAPBO;
 
+typedef struct _syncobj {
+    uintptr_t sync;
+    uint32_t g_sync;
+    struct _syncobj *next;
+} SYNCO, * PSYNCO;
+
 static PMAPBO pbufo = NULL;
+static PSYNCO psynco = NULL;
+
+void InitSyncObj(void)
+{
+    PSYNCO p = psynco;
+    while (p) {
+        PSYNCO next = p->next;
+        g_free(p);
+        p = next;
+    }
+    psynco = p;
+}
+
+uint32_t AddSyncObj(const uintptr_t sync)
+{
+    PSYNCO p = psynco;
+
+    if (!sync)
+        return 0;
+
+    if (!p) {
+        p = g_new0(SYNCO, 1);
+        p->sync = sync;
+        p->g_sync = _mm_crc32_u64(p->g_sync, p->sync);
+        psynco = p;
+    }
+    else {
+        while (p->sync != sync && p->next)
+            p = p->next;
+        if (p->sync != sync) {
+            p->next = g_new0(SYNCO, 1);
+            p = p->next;
+            p->sync = sync;
+            p->g_sync = _mm_crc32_u64(p->g_sync, p->sync);
+
+        }
+    }
+    return p->g_sync;
+}
+
+uintptr_t LookupSyncObj(const uint32_t g_sync)
+{
+    PSYNCO p = psynco;
+
+    if (!p)
+        return INT32_MAX;
+
+    while (p->g_sync != g_sync && p->next)
+        p = p->next;
+
+    if (p->g_sync != g_sync)
+        return INT32_MAX;
+
+    return p->sync;
+}
+
+uintptr_t DeleteSyncObj(const uintptr_t sync)
+{
+    PSYNCO p = psynco, q = NULL;
+
+    if (p) {
+        while (p->sync != sync && p->next) {
+            q = p;
+            p = p->next;
+        }
+        if (p->sync == sync) {
+            if (!q) {
+                q = p->next;
+                psynco = q;
+            }
+            else
+                q->next = p->next;
+            g_free(p);
+        }
+    }
+    return sync;
+}
+
+#if defined(__x86_64__)
+#if defined(__clang__)
+#pragma clang attribute pop
+#elif defined(__GNUC__)
+#pragma GCC pop_options
+#endif
+#endif
 
 void InitBufObj(void)
 {
@@ -46,20 +152,15 @@ mapbufo_t *LookupBufObj(const int idx)
 {
     PMAPBO p = pbufo;
 
-    while(p) {
-        if ((idx == p->bo.idx) || (p->next == NULL))
-            break;
-        p = p->next;
-    }
-
     if (p == NULL) {
         p = g_new0(MAPBO, 1);
         p->bo.idx = idx;
         pbufo = p;
     }
     else {
-        if (idx == p->bo.idx) { }
-        else {
+        while ((idx != p->bo.idx) && p->next)
+            p = p->next;
+        if (idx != p->bo.idx) {
             p->next = g_new0(MAPBO, 1);
             p = p->next;
             p->bo.idx = idx;
@@ -70,22 +171,29 @@ mapbufo_t *LookupBufObj(const int idx)
 
 int FreeBufObj(const int idx)
 {
-    PMAPBO prev = pbufo, curr = pbufo;
-    int cnt = 0;
-    while (curr) {
+    PMAPBO curr = pbufo, prev = NULL;
+
+    int cnt;
+
+    if (curr) {
+        while ((idx != curr->bo.idx) && curr->next) {
+            prev = curr;
+            curr = curr->next;
+        }
         if (idx == curr->bo.idx) {
-            if (pbufo == curr)
-                pbufo = curr->next;
+            if (!prev) {
+                prev = curr->next;
+                pbufo = prev;
+            }
             else
                 prev->next = curr->next;
             g_free(curr);
-            break;
         }
-        prev = curr;
-        curr = curr->next;
     }
 
+    cnt = 0;
     curr = pbufo;
+
     while (curr) {
         cnt++;
         curr = curr->next;

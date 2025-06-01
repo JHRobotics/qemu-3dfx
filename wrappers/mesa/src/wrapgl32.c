@@ -385,7 +385,7 @@ static void InitClientStates(void)
         FILE *f = fopen("NUL", "w"); int c = fprintf(f, fmt, ##__VA_ARGS__); fclose(f); \
         char *str = HeapAlloc(GetProcessHeap(), 0, ALIGNED((c+1))); \
         wsprintf(str, fmt, ##__VA_ARGS__); \
-        glDebugMessageInsertARB(GL_DEBUG_SOURCE_OTHER_ARB, GL_DEBUG_TYPE_OTHER_ARB, GL_DEBUG_SEVERITY_LOW_ARB, -1, (c+1), (uint32_t)str); \
+        glDebugMessageInsertARB(GL_DEBUG_SOURCE_OTHER, GL_DEBUG_TYPE_OTHER, GL_DEBUG_SEVERITY_LOW, -1, (c+1), (uint32_t)str); \
         HeapFree(GetProcessHeap(), 0, str); \
     } while(0)
 
@@ -454,7 +454,7 @@ static void fltrxstr(const char *xstr, size_t len, const char *bless)
 struct mglOptions {
     int bufoAcc;
     int dispTimerMS;
-    int ovrdSync;
+    int swapInt;
     int useMSAA;
     int useSRGB;
     int bltFlip;
@@ -462,7 +462,7 @@ struct mglOptions {
     int vsyncOff;
     int xstrYear;
 };
-static int swapCur, swapFps;
+static int swapCur, swapFps, texClampFix;
 static int parse_value(const char *str, const char *tok, int *val)
 {
     int ret = (memcmp(str, tok, strlen(tok)))? 0:1;
@@ -489,8 +489,8 @@ static void parse_options(struct mglOptions *opt)
         while(fgets(line, MAX_XSTR, f)) {
             i = parse_value(line, "DispTimerMS,", &v);
             opt->dispTimerMS = (i == 1)? (0x8000U | (v & 0x7FFFU)):opt->dispTimerMS;
-            i = parse_value(line, "OverrideSync,", &v);
-            opt->ovrdSync = (i == 1)? (v & 0x03U):opt->ovrdSync;
+            i = parse_value(line, "SwapInterval,", &v);
+            opt->swapInt = (i == 1)? (v & 0x03U):opt->swapInt;
             i = parse_value(line, "BufOAccelEN,", &v);
             opt->bufoAcc = ((i == 1) && v)? 1:opt->bufoAcc;
             i = parse_value(line, "ContextMSAA,", &v);
@@ -505,6 +505,8 @@ static void parse_options(struct mglOptions *opt)
             opt->vsyncOff = ((i == 1) && v)? 1:opt->vsyncOff;
             i = parse_value(line, "ExtensionsYear,", &v);
             opt->xstrYear = (i == 1)? v:opt->xstrYear;
+            i = parse_value(line, "ConformantTexClampOff,", &v);
+            texClampFix = ((i == 1) && v)? 1:texClampFix;
             i = parse_value(line, "CursorSyncOff,", &v);
             swapCur = ((i == 1) && v)? 0:swapCur;
             i = parse_value(line, "FpsLimit,", &v);
@@ -1381,7 +1383,7 @@ void PT_CALL glClientActiveTexture(uint32_t arg0) {
 void PT_CALL glClientActiveTextureARB(uint32_t arg0) {
     pt[1] = arg0; 
     pt0 = (uint32_t *)pt[0]; FIFO_GLFUNC(FEnum_glClientActiveTextureARB, 1);
-    if ((arg0 & 0xFFE0U) == GL_TEXTURE0_ARB)
+    if ((arg0 & 0xFFE0U) == GL_TEXTURE0)
         vtxArry.texUnit = arg0 & (MAX_TEXUNIT - 1);
 }
 void PT_CALL glClientActiveVertexStreamATI(uint32_t arg0) {
@@ -11043,7 +11045,9 @@ void PT_CALL glTexParameterIuivEXT(uint32_t arg0, uint32_t arg1, uint32_t arg2) 
     pt0 = (uint32_t *)pt[0]; *pt0 = FEnum_glTexParameterIuivEXT;
 }
 void PT_CALL glTexParameterf(uint32_t arg0, uint32_t arg1, uint32_t arg2) {
+    float *f = (float *)&pt[3];
     pt[1] = arg0; pt[2] = arg1; pt[3] = arg2; 
+    if (texClampFix && GL_CLAMP == *f) *f = GL_CLAMP_TO_EDGE;
     pt0 = (uint32_t *)pt[0]; FIFO_GLFUNC(FEnum_glTexParameterf, 3);
 }
 void PT_CALL glTexParameterfv(uint32_t arg0, uint32_t arg1, uint32_t arg2) {
@@ -11053,6 +11057,7 @@ void PT_CALL glTexParameterfv(uint32_t arg0, uint32_t arg1, uint32_t arg2) {
 }
 void PT_CALL glTexParameteri(uint32_t arg0, uint32_t arg1, uint32_t arg2) {
     pt[1] = arg0; pt[2] = arg1; pt[3] = arg2; 
+    if (texClampFix && GL_CLAMP == pt[3]) pt[3] = GL_CLAMP_TO_EDGE;
     pt0 = (uint32_t *)pt[0]; FIFO_GLFUNC(FEnum_glTexParameteri, 3);
 }
 void PT_CALL glTexParameteriv(uint32_t arg0, uint32_t arg1, uint32_t arg2) {
@@ -16620,7 +16625,7 @@ static uint32_t PT_CALL wglSwapIntervalEXT (uint32_t arg0)
     parse_options(&cfg);
     WGL_FUNCP("wglSwapIntervalEXT");
     argsp[0] = (cfg.vsyncOff)? 0:arg0;
-    swapFps = (argsp[0] > 0)? 0x7FU:swapFps;
+    swapFps = (argsp[0] == 0)? swapFps:0xFEU;
     ptm[0xFDC >> 2] = MESAGL_MAGIC;
     WGL_FUNCP_RET(ret);
     return ret;
@@ -16977,12 +16982,16 @@ wglSetDeviceCursor3DFX(HCURSOR hCursor)
             ReleaseDC(GLwnd, hdc);
             if (pbmi->bmiHeader.biBitCount == 1)
                 argsp[3] |= 1;
-            if (pbmi->bmiHeader.biBitCount > 16)
+            if (pbmi->bmiHeader.biBitCount > 16) {
+                int h, i;
 #define ALPHA_MASK 0xFF000000U
+                for (h = 0; h < (pbmi->bmiHeader.biSizeImage >> 2); h++)
+                    if (data[h] & ALPHA_MASK) break;
 #define COLOR_MASK 0x00FFFFFFU
-                for (int i = 0; i < (pbmi->bmiHeader.biSizeImage >> 2); i++)
+                for (i = 0; h == (pbmi->bmiHeader.biSizeImage >> 2) && i < h; i++)
                     data[i] = (data[i] && (data[i] ^ COLOR_MASK))?
                         (data[i] | ALPHA_MASK):COLOR_MASK;
+            }
             ptm[0xFDC >> 2] = MESAGL_MAGIC;
             last_cur = hCursor;
         }
@@ -17202,8 +17211,8 @@ mglMakeCurrent (uint32_t arg0, uint32_t arg1)
             if (wglGetSwapIntervalEXT())
                 wglSwapIntervalEXT(0);
         }
-        else if (cfg.ovrdSync && (cfg.ovrdSync != wglGetSwapIntervalEXT()))
-            wglSwapIntervalEXT(cfg.ovrdSync);
+        else if (cfg.swapInt && (cfg.swapInt != wglGetSwapIntervalEXT()))
+            wglSwapIntervalEXT(cfg.swapInt);
         if (logpname)
             HeapFree(GetProcessHeap(), 0, logpname);
         logpname = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x2000);
@@ -17305,30 +17314,34 @@ uint32_t PT_CALL mglUseFontOutlinesW(uint32_t arg0, uint32_t arg1, uint32_t arg2
 int WINAPI wglSwapBuffers (HDC hdc)
 {
     static POINT last_pos;
-    static uint32_t timestamp;
+    static DWORD timestamp;
     uint32_t ret, *swapRet = &mfifo[(MGLSHM_SIZE - ALIGNED(1)) >> 2];
-    uint32_t t = GetTickCount();
+    DWORD t = GetTickCount();
     CURSORINFO ci = { .cbSize = sizeof(CURSORINFO) };
     if (((t - timestamp) >= 16) &&
             display_device_supported() && GetCursorInfo(&ci)) {
         if (ci.flags != CURSOR_SHOWING)
             memset(&last_pos, 0, sizeof(POINT));
         else {
-            RECT wr, cr;
+            RECT cr;
+            LONG x_adj = ci.ptScreenPos.x, y_adj = ci.ptScreenPos.y;
             timestamp = t;
-            GetWindowRect(WindowFromDC(hdc), &wr);
             GetClientRect(WindowFromDC(hdc), &cr);
-            int top = (wr.bottom - wr.top) - cr.bottom;
-            ci.ptScreenPos.y = (ci.ptScreenPos.y > top)? (ci.ptScreenPos.y - top):0;
-            if ((ci.ptScreenPos.x < (wr.right - wr.left)) ||
-                (ci.ptScreenPos.y < (wr.bottom - wr.top))) {
-                ci.ptScreenPos.x = MulDiv(ci.ptScreenPos.x, GetSystemMetrics(SM_CXSCREEN) - 1,
-                        (wr.right - wr.left - 1));
-                ci.ptScreenPos.y = MulDiv(ci.ptScreenPos.y, GetSystemMetrics(SM_CYSCREEN) - 1,
-                        (wr.bottom - wr.top - 1));
-                memcpy(&last_pos, &ci.ptScreenPos, sizeof(POINT));
-                wglSetDeviceCursor3DFX(ci.hCursor);
-            }
+            ScreenToClient(WindowFromDC(hdc), &ci.ptScreenPos);
+            ci.ptScreenPos.x = max(0, ci.ptScreenPos.x);
+            ci.ptScreenPos.y = max(0, ci.ptScreenPos.y);
+            x_adj -= ci.ptScreenPos.x;
+            x_adj = max(0, x_adj);
+            ci.ptScreenPos.x += x_adj;
+            y_adj -= ci.ptScreenPos.y;
+            y_adj = max(0, y_adj);
+            ci.ptScreenPos.y += y_adj;
+            ci.ptScreenPos.x = MulDiv(ci.ptScreenPos.x, GetSystemMetrics(SM_CXSCREEN) - 1,
+                    (cr.right - cr.left + x_adj + x_adj - 1));
+            ci.ptScreenPos.y = MulDiv(ci.ptScreenPos.y, GetSystemMetrics(SM_CYSCREEN) - 1,
+                    (cr.bottom - cr.top + x_adj + y_adj - 1));
+            memcpy(&last_pos, &ci.ptScreenPos, sizeof(POINT));
+            wglSetDeviceCursor3DFX(ci.hCursor);
         }
     }
 #define CURSOR_DWORD(d,p) \
@@ -17337,9 +17350,9 @@ int WINAPI wglSwapBuffers (HDC hdc)
     swapRet[0] = swapFps;
     ptm[0xFF0 >> 2] = MESAGL_MAGIC;
     ret = swapRet[0];
-    if (ret & 0xFEU) {
+    if (ret & 0x1FEU) {
         static uint32_t nexttick;
-        const uint32_t maxFPS = (ret >> 1) & 0x7FU;
+        const uint32_t maxFPS = (ret & 0x1FEU) >> 1;
         while (GetTickCount() < nexttick)
             Sleep(0);
         nexttick = GetTickCount();

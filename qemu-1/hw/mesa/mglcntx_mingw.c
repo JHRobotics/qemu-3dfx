@@ -32,11 +32,13 @@
 
 #if defined(CONFIG_WIN32)
 #include <GL/wgl.h>
-#include "sysemu/whpx.h"
+#include "system/whpx.h"
 
 int MGLUpdateGuestBufo(mapbufo_t *bufo, int add)
 {
-    int ret = GetBufOAccelEN()? whpx_enabled():0;
+    int ret = (GetBufOAccelEN()
+            || (bufo && bufo->tgt == GL_PIXEL_UNPACK_BUFFER)
+            )? whpx_enabled():0;
 
     if (ret && bufo) {
         bufo->lvl = (add)? MapBufObjGpa(bufo):0;
@@ -157,7 +159,7 @@ static struct {
     int (WINAPI *GetSwapIntervalEXT)(void);
 } wglFuncs;
 
-int glwnd_ready(void) { return wnd_ready; }
+int glwnd_ready(void) { return qatomic_read(&wnd_ready); }
 
 int MGLExtIsAvail(const char *xstr, const char *str)
 { return find_xstr(xstr, str); }
@@ -183,8 +185,8 @@ static void cwnd_mesagl(void *swnd, void *nwnd, void *opaque)
     ReleaseDC(hwnd, hDC);
     hwnd = (HWND)nwnd;
     hDC = GetDC(hwnd);
-    wnd_ready = 1;
     DPRINTF("MESAGL window [native %p] ready", nwnd);
+    qatomic_set(&wnd_ready, 1);
 }
 
 static void TmpContextPurge(void)
@@ -262,7 +264,7 @@ void MGLTmpContext(void)
 #define GLWINDOW_INIT() \
     if (hDC == 0) { if (0) \
     CreateMesaWindow("MesaGL", 640, 480, 1); \
-    wnd_ready = 0; \
+    qatomic_set(&wnd_ready, 0); \
     ImplMesaGLReset(); \
     mesa_prepare_window(GetContextMSAA(), GLon12, 0, &cwnd_mesagl); hDC = GetDC(hwnd); }
 
@@ -409,11 +411,11 @@ int MGLSetPixelFormat(int fmt, const void *p)
     if (curr == 0) {
         curr = MGLPresetPixelFormat();
         ret = SetPixelFormat(hDC, curr, (ppfd->nSize)? ppfd:0);
+        DPRINTF("  *WARN* UNLIKELY() SetPixelFormat, %d %d", curr, ret);
     }
-    else {
+    else
         ret = 1;
-        TmpContextPurge();
-    }
+    TmpContextPurge();
 
     if (wglFuncs.GetPixelFormatAttribivARB) {
         static const int iattr[] = {

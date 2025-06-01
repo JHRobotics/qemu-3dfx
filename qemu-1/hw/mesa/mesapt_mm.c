@@ -1383,6 +1383,7 @@ static void processArgs(MesaPTState *s)
             s->parg[1] = s->arg[1];
             s->parg[2] = s->arg[2];
             s->BufObj = LookupBufObj(s->BufIdx);
+            s->BufObj->tgt = s->arg[0];
             s->BufObj->offst = s->arg[1];
             s->BufObj->range = s->arg[2];
             if (s->FEnum == FEnum_glMapBufferRange) {
@@ -1408,6 +1409,7 @@ static void processArgs(MesaPTState *s)
         case FEnum_glMapBuffer:
         case FEnum_glMapBufferARB:
             s->BufObj = LookupBufObj(s->BufIdx);
+            s->BufObj->tgt = s->arg[0];
             s->BufObj->offst = s->BufObj->range = s->BufObj->acc = 0;
             s->BufObj->acc |= (s->arg[1] == GL_READ_ONLY)? GL_MAP_READ_BIT:0;
             s->BufObj->acc |= (s->arg[1] == GL_WRITE_ONLY)? GL_MAP_WRITE_BIT:0;
@@ -1934,6 +1936,7 @@ static void processFRet(MesaPTState *s)
             if (MGLUpdateGuestBufo(s->BufObj, 1))
                 s->FRet = s->BufObj->gpa;
             else {
+                s->BufObj->ocpy = 1;
                 s->szUsedBuf += ALIGNBO(s->BufObj->mapsz);
                 s->FRet = s->szUsedBuf + 1;
             }
@@ -1955,6 +1958,9 @@ static void processFRet(MesaPTState *s)
             s->szUnpackWidth = (s->arg[0] == GL_UNPACK_ROW_LENGTH)? s->arg[1]:s->szUnpackWidth;
             s->szUnpackHeight = (s->arg[0] == GL_UNPACK_IMAGE_HEIGHT)? s->arg[1]:s->szUnpackHeight;
             //DPRINTF("PixelStorei %x %x", s->arg[0], s->arg[1]);
+            break;
+        case FEnum_glFenceSync:
+            s->FRet = AddSyncObj(s->FRet);
             break;
 #undef MGL_BUFO_TRACE
         case FEnum_glGetBooleanv:
@@ -2198,6 +2204,7 @@ static void ContextCreateCommon(MesaPTState *s)
     s->fifoMax = 0; s->dataMax = 0;
     s->szUsedBuf = 0;
     InitBufObj();
+    InitSyncObj();
     InitClientStates(s);
     ImplMesaGLReset();
 }
@@ -2341,7 +2348,7 @@ static void mesapt_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
                 s->perfs.stat();
                 do {
                     uint32_t *swapRet = (uint32_t *)(s->fifo_ptr + (MGLSHM_SIZE - ALIGNED(1)));
-                    DPRINTF_COND((SwapFpsLimit(swapRet[0]) && swapRet[0] != 0x7FU),
+                    DPRINTF_COND((SwapFpsLimit(swapRet[0]) && swapRet[0] != 0xFEU),
                             "Guest GL Swap limit [ %d FPS ]", GetFpsLimit());
                     swapRet[0] = MGLSwapBuffers()? ((GetFpsLimit() << 1) | 1):0;
                     MGLMouseWarp(swapRet[1]);
@@ -2497,7 +2504,7 @@ static void mesapt_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = mesapt_realize;
-    dc->reset = mesapt_reset;
+    device_class_set_legacy_reset(dc, mesapt_reset);
 }
 
 static const TypeInfo mesapt_info = {
