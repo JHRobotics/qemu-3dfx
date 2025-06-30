@@ -1260,6 +1260,8 @@ MK_ALIAS(mgdSwapLayerBuffers, mglSwapLayerBuffers, int, WINAPI,
 MK_ALIAS(mgdShareLists, mglShareLists, uint32_t, PT_CALL,
 	(uint32_t arg0, uint32_t arg1), (arg0, arg1));
 
+MK_ALIAS(mgdGetCurrentContext, mglGetCurrentContext, uint32_t, WINAPI, (), ());
+
 /* if somebody ask for unload */
 HRESULT WINAPI DllCanUnloadNow()
 {

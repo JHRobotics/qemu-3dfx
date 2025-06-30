@@ -5,8 +5,8 @@ CC=$(CROSS)gcc
 RC=windres
 DLLTOOL=dlltool
 STRIP=strip
-CFLAGS=-march=x86-64-v2 -mtune=generic -mfpmath=sse -O3
-CFLAGS+=-pipe -I$(QEMU_SRC_DIR)/hw/mesa -I$(FXLIB) -Wall -Werror -flto=auto -fomit-frame-pointer
+CFLAGS=-flto=auto -march=x86-64-v2 -mtune=generic -Werror
+CFLAGS+=-pipe -I$(QEMU_SRC_DIR)/hw/mesa -I$(FXLIB) -Wall -fomit-frame-pointer
 LDFLAGS=-static-libgcc
 LDFLAGS+=-Wl,--disable-auto-image-base,--no-seh,--dynamicbase,--nxcompat
 SRCDIR=../src
@@ -24,7 +24,7 @@ C_OBJS:=\
     md5.o \
 
 ifdef SOFTGPU
-CFLAGS := $(filter-out -flto=auto -march=x86-64-v2 -mtune=generic  -Werror,$(CFLAGS)) -march=pentium2 -mtune=core2
+CFLAGS := $(filter-out -flto=auto -march=x86-64-v2 -mtune=generic -Werror,$(CFLAGS)) -march=pentium2 -mtune=core2
 endif
 
 all: fxlib $(TARGET) $(TARGETICD) exports-check $(TOOLS)

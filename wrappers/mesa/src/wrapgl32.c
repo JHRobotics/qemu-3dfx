@@ -17502,7 +17502,7 @@ void load_rev()
 	DWORD size;
 	static char rev_revised[255];
 	
-	lResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "Software\\vmdisp9x", 0, KEY_READ, &hKey);
+	lResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "Software\\vmdisp9x\\driver", 0, KEY_READ, &hKey);
 	if(lResult == ERROR_SUCCESS)
 	{
 		size = sizeof(rev_revised);
