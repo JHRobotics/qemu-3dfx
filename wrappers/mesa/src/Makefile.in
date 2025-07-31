@@ -62,7 +62,7 @@ $(TOOLS):
 
 ifndef SOFTGPU
 stamp.o:
-	@git rev-parse HEAD | sed "s/\(.......\).*/const\ char\ rev_\[\]\ =\ \"\1\-\";/" > /tmp/$(@:o=c)
+	@git rev-parse --short HEAD | sed "s/\(.*\)/const\ char\ rev_\[\]\ =\ \"\1\-\";/" > /tmp/$(@:o=c)
 	@echo -n "  REV $@"; cat /tmp/$(@:o=c) | sed "s/.*rev_\[\]\ =//;s/;//"
 	@$(CC) -c -o $@ /tmp/$(@:o=c)
 

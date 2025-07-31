@@ -353,7 +353,11 @@ void MGLDeleteContext(int level)
 {
     int n = (level)? ((level % MAX_LVLCNTX)? (level % MAX_LVLCNTX):1):level;
     glXMakeContextCurrent(dpy, None, None, NULL);
-    if (n == 0) {
+    if (n) {
+        glXDestroyContext(dpy, ctx[n]);
+        ctx[n] = 0;
+    }
+    else {
         for (int i = MAX_LVLCNTX; i > 1;) {
             if (ctx[--i]) {
                 glXDestroyContext(dpy, ctx[i]);
@@ -361,20 +365,22 @@ void MGLDeleteContext(int level)
             }
         }
         MesaBlitFree();
-    }
-    glXDestroyContext(dpy, ctx[n]);
-    ctx[n] = 0;
-    if (!n)
         MGLActivateHandler(0, 0);
+    }
 }
 
 void MGLWndRelease(void)
 {
     if (win) {
+        if (ctx[0]) {
+            glXMakeContextCurrent(dpy, None, None, NULL);
+            glXDestroyContext(dpy, ctx[0]);
+        }
         MesaInitGammaRamp();
         XFree(xvi);
         XCloseDisplay(dpy);
         mesa_release_window();
+        ctx[0]= 0;
         xvi = 0;
         dpy = 0;
         win = 0;
@@ -390,13 +396,14 @@ int MGLCreateContext(uint32_t gDC)
     }
     else {
         glXMakeContextCurrent(dpy, None, None, NULL);
-        for (i = MAX_LVLCNTX; i > 0;) {
+        for (i = MAX_LVLCNTX; i > 1;) {
             if (ctx[--i]) {
                 glXDestroyContext(dpy, ctx[i]);
                 ctx[i] = 0;
             }
         }
-        ctx[0] = glXCreateContext(dpy, xvi, NULL, true);
+        if (!ctx[0])
+            ctx[0] = glXCreateContext(dpy, xvi, NULL, true);
         ret = (ctx[0])? 0:1;
     }
     return ret;
@@ -578,7 +585,6 @@ static int LookupAttribArray(const int *attrib, const int attr)
     }
     return ret;
 }
-
 void MGLFuncHandler(const char *name)
 {
     char fname[64];
@@ -684,14 +690,16 @@ void MGLFuncHandler(const char *name)
             argsp[1] = (argsp[0])? i:0;
             if (argsp[1] == 0) {
                 glXMakeContextCurrent(dpy, None, None, NULL);
-                for (i = MAX_LVLCNTX; i > 0;) {
-                    if (ctx[--i]) {
-                        glXDestroyContext(dpy, ctx[i]);
-                        ctx[i] = 0;
+                if (CompareAttribArray((const int *)&argsp[2])) {
+                    for (i = MAX_LVLCNTX; i > 0;) {
+                        if (ctx[--i]) {
+                            glXDestroyContext(dpy, ctx[i]);
+                            ctx[i] = 0;
+                        }
                     }
+                    MGLActivateHandler(0, 0);
+                    ctx[0] = fp(dpy, fbcnf[fi], 0, True, (const int *)&argsp[2]);
                 }
-                MGLActivateHandler(0, 0);
-                ctx[0] = fp(dpy, fbcnf[fi], 0, True, (const int *)&argsp[2]);
                 ret = (ctx[0])? 1:0;
             }
             else {
